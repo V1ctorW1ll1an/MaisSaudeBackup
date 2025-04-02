@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"os"
 	"path/filepath"
 
@@ -30,7 +31,7 @@ func handleFsNotifyEvent(event fsnotify.Event) {
 		LogFileMetadata(cleanPath)
 		err := config.UploadFileToDrive(srv, cleanPath)
 		if err != nil {
-			logger.Errorf("Erro no upload do arquivo para o google drive: %v", err)
+			logger.Errorf("Erro ao fazer upload do arquivo para o Google Drive: %v", err)
 		}
 	case fsnotify.Remove:
 		logger.Infof("Arquivo removido: %s", cleanPath)
@@ -43,12 +44,21 @@ func handleFsNotifyEvent(event fsnotify.Event) {
 
 func main() {
 	folderPath := "./backups"
-	logger = config.NewLogger("MAIN")
+	logDir := "./logs"
+
 	var err error
+	logger, err = config.NewLogger(logDir)
+	if err != nil {
+		log.Fatalf("Falha ao inicializar o logger: %v", err)
+	}
+	defer logger.Close()
 
 	srv, err = config.GoogleDriveSetup()
 	if err != nil {
 		logger.Errorf("Erro ao fazer setup do google drive: %v", err)
+		// Decide if the application should exit or continue without Drive
+		// For now, it continues but logs the error.
+		//TODO: Send email or notification to the system manager
 	}
 
 	err = os.MkdirAll(folderPath, os.ModePerm)
