@@ -26,4 +26,5 @@ go.work.sum
 
 credentials.json
 token.json
-backup/
+backups/
+logs/

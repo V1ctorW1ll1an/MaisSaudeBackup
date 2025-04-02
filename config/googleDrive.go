@@ -110,6 +110,13 @@ func UploadFileToDrive(srv *drive.Service, filePath string) error {
 
 func GoogleDriveSetup() (*drive.Service, error) {
 	ctx := context.Background()
+
+	var err error
+	logger, err = NewLogger("./logs")
+	if err != nil {
+		return nil, err
+	}
+
 	b, err := os.ReadFile("credentials.json")
 	if err != nil {
 		logger.Errorf("Não foi possível ler o arquivo de credenciais %s: %v", developersGoogleDocs, err)

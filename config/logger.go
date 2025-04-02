@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 type Logger struct {
@@ -24,20 +25,16 @@ func NewLogger(logDir string) (*Logger, error) {
 		return nil, fmt.Errorf("falha ao criar diretório de logs %s: %w", logDir, err)
 	}
 
-	// Construct log file path (e.g., app_2023-10-27.log)
-	// Using a fixed name for simplicity now: app.log
-	logFilePath := filepath.Join(logDir, "app.log")
+	dataCompleta, horario := getFormattedDateTime()
+	logFilePath := createLogFilePath(logDir, dataCompleta, horario)
 
-	// Open/Create the log file
 	file, err := os.OpenFile(logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return nil, fmt.Errorf("falha ao abrir arquivo de log %s: %w", logFilePath, err)
 	}
 
-	// Create a multi-writer to write to both stdout and the file
 	writer := io.MultiWriter(os.Stdout, file)
 
-	// Use standard log flags
 	flags := log.Ldate | log.Ltime | log.Lshortfile
 
 	return &Logger{
@@ -48,6 +45,27 @@ func NewLogger(logDir string) (*Logger, error) {
 		writter: writer,
 		logFile: file,
 	}, nil
+}
+
+// Gera strings formatadas para data e hora com base no tempo atual
+func getFormattedDateTime() (string, string) {
+	now := time.Now()
+	year := now.Format("2006")
+	month := now.Format("01")
+	day := now.Format("02")
+	hour := now.Format("15")
+	minute := now.Format("04")
+	second := now.Format("05")
+
+	dataCompleta := fmt.Sprintf("%s%s%s", year, month, day)
+	horario := fmt.Sprintf("%s%s%s", hour, minute, second)
+
+	return dataCompleta, horario
+}
+
+// Cria o caminho para o arquivo de log
+func createLogFilePath(logDir string, dataCompleta string, horario string) string {
+	return filepath.Join(logDir, fmt.Sprintf("log_backup_%s_%s.log", dataCompleta, horario))
 }
 
 // Close closes the log file handle.
