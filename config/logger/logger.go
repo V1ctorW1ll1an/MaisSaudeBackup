@@ -1,4 +1,4 @@
-package config
+package logger
 
 import (
 	"fmt"
@@ -18,8 +18,8 @@ type Logger struct {
 	logFile *os.File
 }
 
-// NewLogger creates a logger that writes to both stdout and a file in the specified directory.
-func NewLogger(logDir string) (*Logger, error) {
+// New creates a logger that writes to both stdout and a file in the specified directory.
+func New(logDir string) (*Logger, error) {
 	err := os.MkdirAll(logDir, 0755)
 	if err != nil {
 		return nil, fmt.Errorf("falha ao criar diretório de logs %s: %w", logDir, err)
@@ -102,9 +102,4 @@ func (l *Logger) Warnf(f string, v ...any) {
 }
 func (l *Logger) Errorf(f string, v ...any) {
 	l.err.Printf(f, v...)
-}
-
-// LogBackupStart logs the start of a backup process.
-func (l *Logger) LogBackupStart(completedDate string, horario string) {
-	l.info.Printf("Inicio do backup em %s %s", completedDate, horario)
 }

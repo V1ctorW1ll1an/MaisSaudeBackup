@@ -1,4 +1,4 @@
-package config
+package gdrive
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/V1ctorW1ll1an/MaisSaudeBackup/config/logger"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/drive/v3"
@@ -16,7 +17,7 @@ import (
 
 var (
 	developersGoogleDocs = "https://developers.google.com/workspace/drive/api/quickstart/go?hl=pt-br"
-	logger               *Logger
+	l                    *logger.Logger
 )
 
 func getClient(config *oauth2.Config) *http.Client {
@@ -30,10 +31,9 @@ func getClient(config *oauth2.Config) *http.Client {
 }
 
 func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
-	// Cria um canal para receber o código de autorização
+
 	authCodeCh := make(chan string)
 
-	// Configura um handler para capturar o código de autorização
 	http.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
 		authCode := r.URL.Query().Get("code")
 		authCodeCh <- authCode
@@ -41,25 +41,21 @@ func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
 		fmt.Fprintf(w, "Autenticação concluída. Você pode fechar esta janela.")
 	})
 
-	// Configura a URL de autorização com redirect_uri
 	config.RedirectURL = "http://localhost:8989/callback"
 	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
 
-	// Inicia o servidor local
 	go func() {
 		fmt.Println("Abra este link no seu navegador:")
 		fmt.Println(authURL)
-		logger.Info("Servidor de autenticação iniciado na porta 8989")
-		logger.Error(http.ListenAndServe(":8989", nil))
+		l.Info("Servidor de autenticação iniciado na porta 8989")
+		l.Error(http.ListenAndServe(":8989", nil))
 	}()
 
-	// Espera pelo código de autorização
 	authCode := <-authCodeCh
 
-	// Troca o código por um token
 	tok, err := config.Exchange(context.TODO(), authCode)
 	if err != nil {
-		logger.Errorf("Erro ao recuperar token: %v", err)
+		l.Errorf("Erro ao recuperar token: %v", err)
 	}
 	return tok
 }
@@ -76,69 +72,63 @@ func tokenFromFile(file string) (*oauth2.Token, error) {
 }
 
 func saveToken(path string, token *oauth2.Token) {
-	logger.Infof("Salvando arquivo de credenciais em: %s\n", path)
+	l.Infof("Salvando arquivo de credenciais em: %s\n", path)
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
-		logger.Errorf("Não foi possível salvar o token oauth: %v", err)
+		l.Errorf("Não foi possível salvar o token oauth: %v", err)
+		os.Exit(1)
 	}
 	defer f.Close()
 	json.NewEncoder(f).Encode(token)
 }
 
-func UploadFileToDrive(srv *drive.Service, filePath string) error {
-	// Abre o arquivo que deseja fazer upload
-	file, err := os.Open(filePath)
+func UploadFileToDrive(ds *drive.Service, filePath string) error {
+	f, err := os.Open(filePath)
 	if err != nil {
 		return fmt.Errorf("erro ao abrir arquivo: %v", err)
 	}
-	defer file.Close()
+	defer f.Close()
 
-	// Cria o arquivo no Google Drive
 	driveFile := &drive.File{
 		Name: filepath.Base(filePath),
 	}
 
-	// Realiza o upload
-	_, err = srv.Files.Create(driveFile).Media(file).Do()
+	_, err = ds.Files.Create(driveFile).Media(f).Do()
 	if err != nil {
 		return fmt.Errorf("erro ao fazer upload do arquivo: %v", err)
 	}
 
-	logger.Infof("Arquivo %s enviado com sucesso!\n", filePath)
+	l.Infof("Arquivo %s enviado com sucesso!\n", filePath)
 	return nil
 }
 
-func GoogleDriveSetup() (*drive.Service, error) {
+func New() (*drive.Service, error) {
 	ctx := context.Background()
 
-	var err error
-	logger, err = NewLogger("./logs")
+	l, err := logger.New("./logs")
 	if err != nil {
 		return nil, err
 	}
 
 	b, err := os.ReadFile("credentials.json")
 	if err != nil {
-		logger.Errorf("Não foi possível ler o arquivo de credenciais %s: %v", developersGoogleDocs, err)
+		l.Errorf("Não foi possível ler o arquivo de credenciais %s: %v", developersGoogleDocs, err)
 		return nil, err
 	}
 
-	// Escopos necessários para upload
 	config, err := google.ConfigFromJSON(b, drive.DriveFileScope)
 	if err != nil {
-		logger.Errorf("Não foi possível analisar o arquivo de credenciais %s: %v", developersGoogleDocs, err)
+		l.Errorf("Não foi possível analisar o arquivo de credenciais %s: %v", developersGoogleDocs, err)
 		return nil, err
 	}
 
-	// Obtém o cliente autenticado
 	client := getClient(config)
 
-	// Cria o serviço do Drive
-	srv, err := drive.NewService(ctx, option.WithHTTPClient(client))
+	ds, err := drive.NewService(ctx, option.WithHTTPClient(client))
 	if err != nil {
-		logger.Errorf("Não foi possível recuperar o cliente do Drive %s: %v", developersGoogleDocs, err)
+		l.Errorf("Não foi possível recuperar o cliente do Drive %s: %v", developersGoogleDocs, err)
 		return nil, err
 	}
 
-	return srv, nil
+	return ds, nil
 }

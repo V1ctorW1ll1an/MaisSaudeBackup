@@ -1,9 +1,17 @@
-package main
+package files
 
 import (
 	"os"
+	"path/filepath"
 
+	"github.com/V1ctorW1ll1an/MaisSaudeBackup/config/logger"
+	"github.com/V1ctorW1ll1an/MaisSaudeBackup/pkg/gdrive"
 	"github.com/fsnotify/fsnotify"
+	"google.golang.org/api/drive/v3"
+)
+
+var (
+	l *logger.Logger
 )
 
 // LogFileMetadata logs the metadata of a given file, including its name, size, and last modification time.
@@ -16,14 +24,14 @@ import (
 func LogFileMetadata(path string) error {
 	f, err := os.Stat(path)
 	if err != nil {
-		logger.Infof("Erro ao obter informações do arquivo: %v", err)
+		l.Infof("Erro ao obter informações do arquivo: %v", err)
 		return err
 	}
 
-	logger.Info("Detalhes do arquivo:")
-	logger.Infof("Nome: %s\n", f.Name())
-	logger.Infof("Tamanho: %d bytes\n", f.Size())
-	logger.Infof("Última modificação: %v\n", f.ModTime())
+	l.Info("Detalhes do arquivo:")
+	l.Infof("Nome: %s\n", f.Name())
+	l.Infof("Tamanho: %d bytes\n", f.Size())
+	l.Infof("Última modificação: %v\n", f.ModTime())
 	return nil
 }
 
@@ -37,11 +45,11 @@ func LogFileMetadata(path string) error {
 //
 // Parameters:
 //   - folderPath: The path of the folder to be monitored.
-//   - f: A callback function that processes file system events.
+//   - ds: The Google Drive service to be used for uploading files.
 //
 // Returns:
 //   - error: An error if the watcher fails to initialize or attach to the folder.
-func WatchFolder(folderPath string, f func(fsnotify.Event)) error {
+func WatchFolder(folderPath string, ds *drive.Service) error {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return err
@@ -62,13 +70,13 @@ func WatchFolder(folderPath string, f func(fsnotify.Event)) error {
 				if !ok {
 					return
 				}
-				f(event)
+				handleFsNotifyEvent(event, ds)
 
 			case err, ok := <-watcher.Errors:
 				if !ok {
 					return
 				}
-				logger.Errorf("Erro: %v", err)
+				l.Errorf("Erro: %v", err)
 			}
 		}
 	}()
@@ -81,4 +89,31 @@ func WatchFolder(folderPath string, f func(fsnotify.Event)) error {
 	// Keeps the function running indefinitely
 	<-done
 	return nil
+}
+
+func handleFsNotifyEvent(event fsnotify.Event, ds *drive.Service) {
+	absPath, err := filepath.Abs(event.Name)
+	if err != nil {
+		l.Errorf("Erro ao obter caminho absoluto: %v", err)
+		absPath = event.Name
+	}
+
+	// Limpa o caminho para garantir consistência
+	cleanPath := filepath.Clean(absPath)
+
+	switch event.Op {
+	case fsnotify.Create:
+		l.Infof("Novo arquivo criado: %s", cleanPath)
+		LogFileMetadata(cleanPath)
+		err := gdrive.UploadFileToDrive(ds, cleanPath)
+		if err != nil {
+			l.Errorf("Erro ao fazer upload do arquivo para o Google Drive: %v", err)
+		}
+	case fsnotify.Remove:
+		l.Infof("Arquivo removido: %s", cleanPath)
+	case fsnotify.Rename:
+		l.Infof("Arquivo renomeado: %s", cleanPath)
+	case fsnotify.Write:
+		l.Infof("Arquivo modificado: %s", cleanPath)
+	}
 }
