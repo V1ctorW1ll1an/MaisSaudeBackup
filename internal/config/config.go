@@ -5,7 +5,6 @@ import (
 	"flag"
 	"log"
 	"os"
-	"strings"
 )
 
 // UpdloaderConfig armazena as configurações da aplicação carregadas via flags.
@@ -100,11 +99,6 @@ func ValidateBackupFlags(cfg *DbBackupConfig) {
 	}
 	if cfg.LogDir == "" {
 		log.Fatal("Flag -log-dir é obrigatório")
-	}
-
-	// Validação de formatos e valores
-	if !strings.Contains(cfg.Server, "\\") && !strings.Contains(cfg.Server, ",") {
-		log.Printf("Aviso: O formato do servidor pode estar incorreto. Use 'host\\instância' ou 'host,porta'")
 	}
 
 	// Validação de diretórios

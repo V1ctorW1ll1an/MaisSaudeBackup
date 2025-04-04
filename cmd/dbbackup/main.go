@@ -63,9 +63,9 @@ func main() {
 	bakFilePathOnServer := filepath.Join(cfg.BackupDir, bakFilename)
 	// Substitui barras para o formato Windows, caso Join use barra normal
 	bakFilePathOnServer = filepath.ToSlash(bakFilePathOnServer)
-
-	backupSQL := fmt.Sprintf("BACKUP DATABASE [%s] TO DISK = N'%s' WITH FORMAT, NAME = N'%s Backup'",
-		cfg.Database, bakFilePathOnServer, cfg.Database)
+	// "BACKUP DATABASE [SCM] TO DISK = '%backup_dir%\SCM_%data_completa%_%horario%.bak'"
+	backupSQL := fmt.Sprintf("BACKUP DATABASE [%s] TO DISK = '%s\\%s_%s.bak'",
+		cfg.Database, cfg.BackupDir, cfg.Database, timestamp)
 
 	l.Info("Preparando para executar backup",
 		slog.String("database", cfg.Database),
