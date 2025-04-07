@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/drive/v3"
@@ -30,8 +31,8 @@ func NewDriveUploader(ctx context.Context, logger *slog.Logger, credentialsFile,
 		return nil, fmt.Errorf("leitura de %s falhou: %w", credentialsFile, err)
 	}
 
-	// Use drive.DriveFileScope para acesso limitado ou drive.DriveScope para acesso total
-	config, err := google.ConfigFromJSON(b, drive.DriveFileScope)
+	// Use drive.DriveScope para acesso total, incluindo criação de pastas
+	config, err := google.ConfigFromJSON(b, drive.DriveScope)
 	if err != nil {
 		log.Error("Não foi possível parsear o arquivo de credenciais", slog.String("path", credentialsFile), slog.Any("error", err))
 		return nil, fmt.Errorf("parse de %s falhou: %w", credentialsFile, err)
@@ -52,8 +53,114 @@ func NewDriveUploader(ctx context.Context, logger *slog.Logger, credentialsFile,
 	return &DriveUploader{logger: log, service: driveService}, nil
 }
 
+// createBackupFolder creates a new folder in Google Drive with the current date as name if it doesn't exist
+func (du *DriveUploader) createBackupFolder(ctx context.Context) (string, error) {
+	folderName := time.Now().Format("02-01-2006")
+	du.logger.Info("Verificando pasta de backup", slog.String("folder", folderName))
+
+	// First, check if the folder already exists
+	query := fmt.Sprintf("name = '%s' and mimeType = 'application/vnd.google-apps.folder' and trashed = false", folderName)
+	files, err := du.service.Files.List().
+		Q(query).
+		Fields("files(id, name, mimeType)").
+		Context(ctx).
+		Do()
+	if err != nil {
+		du.logger.Error("Erro ao buscar pasta existente", slog.String("folder", folderName), slog.Any("error", err))
+		return "", fmt.Errorf("busca de pasta %s falhou: %w", folderName, err)
+	}
+
+	// Log all found folders for debugging
+	if len(files.Files) > 0 {
+		du.logger.Info("Pastas encontradas:", slog.Int("count", len(files.Files)))
+		for i, f := range files.Files {
+			du.logger.Info(fmt.Sprintf("Pasta %d:", i+1),
+				slog.String("id", f.Id),
+				slog.String("name", f.Name),
+				slog.String("mimeType", f.MimeType))
+		}
+	}
+
+	// If folder exists, verify it's actually a folder and return its ID
+	if len(files.Files) > 0 {
+		for _, f := range files.Files {
+			if f.MimeType == "application/vnd.google-apps.folder" {
+				du.logger.Info("Pasta válida encontrada",
+					slog.String("folder", folderName),
+					slog.String("id", f.Id))
+				return f.Id, nil
+			}
+		}
+	}
+
+	du.logger.Info("Nenhuma pasta válida encontrada, criando nova pasta", slog.String("folder", folderName))
+
+	// If folder doesn't exist, create it
+	folder := &drive.File{
+		Name:     folderName,
+		MimeType: "application/vnd.google-apps.folder",
+	}
+
+	createdFolder, err := du.service.Files.Create(folder).
+		Fields("id, name, mimeType").
+		Context(ctx).
+		Do()
+	if err != nil {
+		du.logger.Error("Erro ao criar pasta no Google Drive",
+			slog.String("folder", folderName),
+			slog.Any("error", err),
+			slog.String("error_type", fmt.Sprintf("%T", err)))
+		return "", fmt.Errorf("criação de pasta %s falhou: %w", folderName, err)
+	}
+
+	du.logger.Info("Pasta criada com sucesso no Google Drive",
+		slog.String("folder", folderName),
+		slog.String("id", createdFolder.Id),
+		slog.String("mimeType", createdFolder.MimeType))
+	return createdFolder.Id, nil
+}
+
+// deleteOldBackupFolder deletes the backup folder from the previous day
+func (du *DriveUploader) deleteOldBackupFolder(ctx context.Context) error {
+	yesterday := time.Now().AddDate(0, 0, -1).Format("02-01-2006")
+
+	// Search for the folder with yesterday's date
+	query := fmt.Sprintf("name = '%s' and mimeType = 'application/vnd.google-apps.folder'", yesterday)
+	files, err := du.service.Files.List().Q(query).Context(ctx).Do()
+	if err != nil {
+		du.logger.Error("Erro ao buscar pasta antiga", slog.String("folder", yesterday), slog.Any("error", err))
+		return fmt.Errorf("busca de pasta %s falhou: %w", yesterday, err)
+	}
+
+	if len(files.Files) == 0 {
+		du.logger.Debug("Nenhuma pasta antiga encontrada para deletar", slog.String("folder", yesterday))
+		return nil
+	}
+
+	// Delete the folder
+	err = du.service.Files.Delete(files.Files[0].Id).Context(ctx).Do()
+	if err != nil {
+		du.logger.Error("Erro ao deletar pasta antiga", slog.String("folder", yesterday), slog.Any("error", err))
+		return fmt.Errorf("deleção de pasta %s falhou: %w", yesterday, err)
+	}
+
+	du.logger.Info("Pasta antiga deletada com sucesso", slog.String("folder", yesterday))
+	return nil
+}
+
 // UploadFile envia um arquivo para o Google Drive. Satisfaz watcher.Uploader.
 func (du *DriveUploader) UploadFile(ctx context.Context, filePath string) error {
+	// Create new backup folder
+	folderID, err := du.createBackupFolder(ctx)
+	if err != nil {
+		return fmt.Errorf("falha ao criar pasta de backup: %w", err)
+	}
+
+	// Delete old backup folder
+	if err := du.deleteOldBackupFolder(ctx); err != nil {
+		du.logger.Warn("Falha ao deletar pasta antiga, continuando com upload", slog.Any("error", err))
+	}
+
 	file, err := os.Open(filePath)
 	if err != nil {
 		du.logger.Error("Erro ao abrir arquivo local para upload", slog.String("path", filePath), slog.Any("error", err))
@@ -71,8 +178,8 @@ func (du *DriveUploader) UploadFile(ctx context.Context, filePath string) error 
 	du.logger.Debug("Iniciando upload", logAttrs...)
 
 	driveFile := &drive.File{
-		Name: filepath.Base(filePath),
-		// Parents: []string{"YOUR_FOLDER_ID"}, // Opcional: Adicione ID da pasta aqui
+		Name:    filepath.Base(filePath),
+		Parents: []string{folderID},
 	}
 
 	// Usa Context(ctx) para propagar cancelamento

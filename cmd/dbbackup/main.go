@@ -1,9 +1,11 @@
 package main
 
 import (
+	"archive/zip"
 	"database/sql"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"os"
@@ -67,6 +69,8 @@ func main() {
 	backupSQL := fmt.Sprintf("BACKUP DATABASE [%s] TO DISK = '%s\\%s_%s.bak'",
 		cfg.Database, cfg.BackupDir, cfg.Database, timestamp)
 
+	l.Info("Backup SQL", slog.String("sql", backupSQL))
+
 	l.Info("Preparando para executar backup",
 		slog.String("database", cfg.Database),
 		slog.String("backup_path_on_server", bakFilePathOnServer))
@@ -81,48 +85,48 @@ func main() {
 	l.Info("Comando de backup executado com sucesso no servidor.")
 
 	// --- Preparar Arquivo Zip ---
-	// zipFilename := fmt.Sprintf("%s_%s.zip", cfg.Database, timestamp)
-	// zipFilePathLocal := filepath.Join(cfg.ZipDir, zipFilename)
+	zipFilename := fmt.Sprintf("%s_%s.zip", cfg.Database, timestamp)
+	zipFilePathLocal := filepath.Join(cfg.ZipDir, zipFilename)
 
-	// l.Info("Criando arquivo zip local", slog.String("path", zipFilePathLocal))
-	// zipFile, err := os.Create(zipFilePathLocal)
-	// if err != nil {
-	// 	l.Error("Erro ao criar arquivo zip", slog.String("path", zipFilePathLocal), slog.Any("error", err))
-	// }
-	// defer zipFile.Close()
+	l.Info("Criando arquivo zip local", slog.String("path", zipFilePathLocal))
+	zipFile, err := os.Create(zipFilePathLocal)
+	if err != nil {
+		l.Error("Erro ao criar arquivo zip", slog.String("path", zipFilePathLocal), slog.Any("error", err))
+	}
+	defer zipFile.Close()
 
-	// zipWriter := zip.NewWriter(zipFile)
-	// defer zipWriter.Close()
+	zipWriter := zip.NewWriter(zipFile)
+	defer zipWriter.Close()
 
-	// // --- Abrir o Arquivo .bak (Acessando o path do servidor) ---
-	// l.Info("Abrindo arquivo de backup do servidor", slog.String("path", bakFilePathOnServer))
-	// bakFile, err := os.Open(bakFilePathOnServer)
-	// if err != nil {
-	// 	l.Error("Erro ao abrir arquivo .bak. Verifique o caminho e as permissões.",
-	// 		slog.String("path", bakFilePathOnServer),
-	// 		slog.Any("error", err))
-	// 	os.Exit(1)
-	// }
-	// defer bakFile.Close()
+	// --- Abrir o Arquivo .bak (Acessando o path do servidor) ---
+	l.Info("Abrindo arquivo de backup do servidor", slog.String("path", bakFilePathOnServer))
+	bakFile, err := os.Open(bakFilePathOnServer)
+	if err != nil {
+		l.Error("Erro ao abrir arquivo .bak. Verifique o caminho e as permissões.",
+			slog.String("path", bakFilePathOnServer),
+			slog.Any("error", err))
+		os.Exit(1)
+	}
+	defer bakFile.Close()
 
-	// // --- Criar Entrada no Zip e Copiar Dados ---
-	// l.Info("Adicionando arquivo ao zip", slog.String("filename_in_zip", bakFilename))
-	// zipEntryWriter, err := zipWriter.Create(bakFilename)
-	// if err != nil {
-	// 	l.Error("Erro ao criar entrada no zip", slog.Any("error", err))
-	// 	os.Exit(1)
-	// }
+	// --- Criar Entrada no Zip e Copiar Dados ---
+	l.Info("Adicionando arquivo ao zip", slog.String("filename_in_zip", bakFilename))
+	zipEntryWriter, err := zipWriter.Create(bakFilename)
+	if err != nil {
+		l.Error("Erro ao criar entrada no zip", slog.Any("error", err))
+		os.Exit(1)
+	}
 
-	// l.Info("Copiando dados do backup para o arquivo zip...")
-	// bytesCopied, err := io.Copy(zipEntryWriter, bakFile)
-	// if err != nil {
-	// 	l.Error("Erro ao copiar dados do .bak para o .zip", slog.Any("error", err))
-	// 	os.Exit(1)
-	// }
-	// l.Info("Dados copiados para o arquivo zip", slog.Int64("bytes_copied", bytesCopied))
+	l.Info("Copiando dados do backup para o arquivo zip...")
+	bytesCopied, err := io.Copy(zipEntryWriter, bakFile)
+	if err != nil {
+		l.Error("Erro ao copiar dados do .bak para o .zip", slog.Any("error", err))
+		os.Exit(1)
+	}
+	l.Info("Dados copiados para o arquivo zip", slog.Int64("bytes_copied", bytesCopied))
 
-	// // --- Finalização ---
-	// l.Info("Backup concluído e zipado com sucesso",
-	// 	slog.String("database", cfg.Database),
-	// 	slog.String("zip_file", zipFilePathLocal))
+	// --- Finalização ---
+	l.Info("Backup concluído e zipado com sucesso",
+		slog.String("database", cfg.Database),
+		slog.String("zip_file", zipFilePathLocal))
 }

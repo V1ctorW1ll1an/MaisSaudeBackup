@@ -19,8 +19,6 @@ import (
 )
 
 func main() {
-	// Parsear TODOS os flags definidos na aplicação
-	flag.Parse()
 
 	// Criar a configuração usando os valores parseados
 	cfg, err := config.NewUploaderConfig()
@@ -29,6 +27,10 @@ func main() {
 		flag.Usage() // Mostrar ajuda se a validação em NewConfig falhar
 		log.Fatalf("Erro: %v", err)
 	}
+
+	flag.Parse()
+
+	config.ValidateUploaderFlags(cfg)
 
 	// Setup Logger
 	l, logFile, err := logger.Setup(cfg.LogDir, cfg.LogLevel)
