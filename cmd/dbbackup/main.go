@@ -14,6 +14,7 @@ import (
 
 	"github.com/V1ctorW1ll1an/MaisSaudeBackup/internal/config"
 	"github.com/V1ctorW1ll1an/MaisSaudeBackup/internal/logger"
+	"github.com/V1ctorW1ll1an/MaisSaudeBackup/internal/whatsapp"
 	_ "github.com/denisenkom/go-mssqldb" // Driver SQL Server (import anônimo)
 )
 
@@ -36,6 +37,13 @@ func main() {
 	// --- Validação Simples dos Flags ---
 	config.ValidateBackupFlags(cfg)
 
+	// --- Inicializar WhatsApp Client ---
+	whatsappClient, err := whatsapp.ConfigWhatsappApi()
+	if err != nil {
+		l.Error("Erro ao configurar cliente WhatsApp", slog.Any("error", err))
+		// Não saímos aqui pois o backup ainda pode funcionar sem WhatsApp
+	}
+
 	// --- Construção da Connection String ---
 	connString := fmt.Sprintf("sqlserver://%s:%s@%s?database=%s", cfg.User, cfg.Password, cfg.Server, cfg.Database)
 
@@ -46,6 +54,9 @@ func main() {
 	db, err := sql.Open("sqlserver", connString)
 	if err != nil {
 		l.Error("Erro ao preparar conexão", slog.Any("error", err))
+		if whatsappClient != nil {
+			whatsappClient.Send("Admin", cfg.Database, time.Now().Format("02/01/2006 15:04:05"), fmt.Sprintf("Erro ao preparar conexão: %v", err))
+		}
 		os.Exit(1)
 	}
 	defer db.Close()
@@ -54,6 +65,9 @@ func main() {
 	err = db.Ping()
 	if err != nil {
 		l.Error("Erro ao conectar ao banco de dados", slog.Any("error", err))
+		if whatsappClient != nil {
+			whatsappClient.Send("Admin", cfg.Database, time.Now().Format("02/01/2006 15:04:05"), fmt.Sprintf("Erro ao conectar ao banco de dados: %v", err))
+		}
 		os.Exit(1)
 	}
 	l.Info("Conexão estabelecida com sucesso.")
@@ -80,6 +94,9 @@ func main() {
 	_, err = db.Exec(backupSQL)
 	if err != nil {
 		l.Error("Erro ao executar o comando de backup", slog.Any("error", err))
+		if whatsappClient != nil {
+			whatsappClient.Send("Admin", cfg.Database, time.Now().Format("02/01/2006 15:04:05"), fmt.Sprintf("Erro ao executar o comando de backup: %v", err))
+		}
 		os.Exit(1)
 	}
 	l.Info("Comando de backup executado com sucesso no servidor.")
@@ -92,6 +109,10 @@ func main() {
 	zipFile, err := os.Create(zipFilePathLocal)
 	if err != nil {
 		l.Error("Erro ao criar arquivo zip", slog.String("path", zipFilePathLocal), slog.Any("error", err))
+		if whatsappClient != nil {
+			whatsappClient.Send("Admin", cfg.Database, time.Now().Format("02/01/2006 15:04:05"), fmt.Sprintf("Erro ao criar arquivo zip: %v", err))
+		}
+		os.Exit(1)
 	}
 	defer zipFile.Close()
 
@@ -105,6 +126,9 @@ func main() {
 		l.Error("Erro ao abrir arquivo .bak. Verifique o caminho e as permissões.",
 			slog.String("path", bakFilePathOnServer),
 			slog.Any("error", err))
+		if whatsappClient != nil {
+			whatsappClient.Send("Admin", cfg.Database, time.Now().Format("02/01/2006 15:04:05"), fmt.Sprintf("Erro ao abrir arquivo .bak: %v", err))
+		}
 		os.Exit(1)
 	}
 	defer bakFile.Close()
@@ -114,6 +138,9 @@ func main() {
 	zipEntryWriter, err := zipWriter.Create(bakFilename)
 	if err != nil {
 		l.Error("Erro ao criar entrada no zip", slog.Any("error", err))
+		if whatsappClient != nil {
+			whatsappClient.Send("Admin", cfg.Database, time.Now().Format("02/01/2006 15:04:05"), fmt.Sprintf("Erro ao criar entrada no zip: %v", err))
+		}
 		os.Exit(1)
 	}
 
@@ -121,6 +148,9 @@ func main() {
 	bytesCopied, err := io.Copy(zipEntryWriter, bakFile)
 	if err != nil {
 		l.Error("Erro ao copiar dados do .bak para o .zip", slog.Any("error", err))
+		if whatsappClient != nil {
+			whatsappClient.Send("Admin", cfg.Database, time.Now().Format("02/01/2006 15:04:05"), fmt.Sprintf("Erro ao copiar dados do .bak para o .zip: %v", err))
+		}
 		os.Exit(1)
 	}
 	l.Info("Dados copiados para o arquivo zip", slog.Int64("bytes_copied", bytesCopied))
