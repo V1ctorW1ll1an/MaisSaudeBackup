@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -54,21 +55,29 @@ func (fw *FolderWatcher) Run(ctx context.Context) error {
 					fw.logger.Info("Canal de eventos do watcher fechado.")
 					return
 				}
-				// Usar event.Has() é mais robusto para operações combinadas (embora Create seja simples)
-				if event.Has(fsnotify.Create) {
+				// Usar event.Has() é mais robusto para operações combinadas
+				// Vamos focar na CRIAÇÃO de arquivos .zip
+				if event.Has(fsnotify.Create) { // Verificar evento de CRIAÇÃO
 					filePath := event.Name
-					fw.logger.Info("Novo arquivo detectado", slog.String("path", filePath))
+					fileExt := filepath.Ext(filePath)
 
-					cleanPath, absErr := filepath.Abs(filepath.Clean(filePath))
-					if absErr != nil {
-						fw.logger.Error("Erro ao obter caminho absoluto", slog.String("raw_path", filePath), slog.Any("error", absErr))
-						cleanPath = filePath // Tenta continuar mesmo assim
+					// Processar SOMENTE se for um arquivo .zip
+					if fileExt == ".zip" {
+						fw.logger.Info("Novo arquivo .zip detectado", slog.String("path", filePath))
+
+						cleanPath, absErr := filepath.Abs(filepath.Clean(filePath))
+						if absErr != nil {
+							fw.logger.Error("Erro ao obter caminho absoluto", slog.String("raw_path", filePath), slog.Any("error", absErr))
+							cleanPath = filePath // Tenta continuar mesmo assim
+						}
+
+						// Lança upload em goroutine separada
+						go fw.handleUpload(ctx, cleanPath)
+					} else {
+						fw.logger.Debug("Evento de criação ignorado (não é .zip)", slog.String("path", filePath), slog.String("ext", fileExt))
 					}
-
-					// Lança upload em goroutine separada
-					go fw.handleUpload(ctx, cleanPath)
 				} else {
-					fw.logger.Debug("Evento fsnotify ignorado", slog.String("path", event.Name), slog.String("op", event.Op.String()))
+					fw.logger.Debug("Evento fsnotify ignorado (não é Create)", slog.String("path", event.Name), slog.String("op", event.Op.String()))
 				}
 
 			case err, ok := <-watcher.Errors:
@@ -134,6 +143,57 @@ func (fw *FolderWatcher) handleUpload(ctx context.Context, filePath string) {
 		// TODO: Lógica de retentativa/notificação
 	} else {
 		uploadLogger.Info("Upload concluído com sucesso")
-		// TODO: Mover/deletar arquivo local opcionalmente
+
+		// Obter o diretório onde o arquivo está
+		dirPath := filepath.Dir(filePath)
+		uploadLogger.Info("Iniciando limpeza pós-upload", slog.String("directory_to_clean", dirPath))
+
+		// Chamar a função auxiliar para deletar os arquivos nesse diretório
+		// Passa o logger principal ou o uploadLogger, dependendo do nível de detalhe desejado nos logs de exclusão
+		deleteAllFilesInDir(dirPath, fw.logger)
+	}
+}
+
+// deleteAllFilesInDir é uma função auxiliar para limpar os arquivos de um diretório.
+func deleteAllFilesInDir(dirPath string, logger *slog.Logger) {
+	logger = logger.With(slog.String("directory", dirPath)) // Adiciona contexto do diretório ao logger
+	logger.Info("Iniciando tentativa de exclusão de todos os arquivos no diretório")
+
+	// Lê todas as entradas (arquivos e subdiretórios) no diretório especificado
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		logger.Error("Falha ao listar conteúdo do diretório para exclusão", slog.Any("error", err))
+		return // Não podemos prosseguir se não conseguirmos ler o diretório
+	}
+
+	deletedCount := 0
+	errorCount := 0
+
+	for _, entry := range entries {
+		// Constrói o caminho completo para a entrada atual
+		fullPath := filepath.Join(dirPath, entry.Name())
+
+		// Verifica se a entrada NÃO é um diretório (ou seja, é um arquivo)
+		if !entry.IsDir() {
+			logger.Debug("Tentando excluir arquivo", slog.String("file", fullPath))
+			err := os.Remove(fullPath)
+			if err != nil {
+				// Loga o erro mas continua tentando excluir outros arquivos
+				logger.Warn("Falha ao excluir arquivo", slog.String("file", fullPath), slog.Any("error", err))
+				errorCount++
+			} else {
+				logger.Info("Arquivo excluído com sucesso", slog.String("file", fullPath))
+				deletedCount++
+			}
+		} else {
+			// Apenas loga que está pulando um subdiretório
+			logger.Debug("Ignorando subdiretório durante a exclusão", slog.String("subdir", fullPath))
+		}
+	}
+
+	if errorCount > 0 {
+		logger.Warn("Finalizada a exclusão de arquivos com erros", slog.Int("deleted_count", deletedCount), slog.Int("error_count", errorCount))
+	} else {
+		logger.Info("Finalizada a exclusão de arquivos com sucesso", slog.Int("deleted_count", deletedCount))
 	}
 }

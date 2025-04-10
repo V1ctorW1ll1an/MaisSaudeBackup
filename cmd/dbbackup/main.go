@@ -102,22 +102,26 @@ func main() {
 	l.Info("Comando de backup executado com sucesso no servidor.")
 
 	// --- Preparar Arquivo Zip ---
-	zipFilename := fmt.Sprintf("%s_%s.zip", cfg.Database, timestamp)
-	zipFilePathLocal := filepath.Join(cfg.ZipDir, zipFilename)
+	finalZipFilename := fmt.Sprintf("%s_%s.zip", cfg.Database, timestamp)
+	tempZipFilename := fmt.Sprintf("%s_%s.tmp", cfg.Database, timestamp) // Nome temporário
+	finalZipPathLocal := filepath.Join(cfg.ZipDir, finalZipFilename)
+	tempZipPathLocal := filepath.Join(cfg.ZipDir, tempZipFilename) // Caminho temporário
 
-	l.Info("Criando arquivo zip local", slog.String("path", zipFilePathLocal))
-	zipFile, err := os.Create(zipFilePathLocal)
+	l.Info("Criando arquivo zip temporário", slog.String("path", tempZipPathLocal))
+	zipFile, err := os.Create(tempZipPathLocal) // Cria com nome .tmp
 	if err != nil {
-		l.Error("Erro ao criar arquivo zip", slog.String("path", zipFilePathLocal), slog.Any("error", err))
+		l.Error("Erro ao criar arquivo zip temporário", slog.String("path", tempZipPathLocal), slog.Any("error", err))
 		if whatsappClient != nil {
-			whatsappClient.Send("Admin", cfg.Database, time.Now().Format("02/01/2006 15:04:05"), fmt.Sprintf("Erro ao criar arquivo zip: %v", err))
+			whatsappClient.Send("Admin", cfg.Database, time.Now().Format("02/01/2006 15:04:05"), fmt.Sprintf("Erro ao criar arquivo zip temporário: %v", err))
 		}
 		os.Exit(1)
 	}
+	// Defer o fechamento ANTES do rename e ANTES do zipWriter.Close()
 	defer zipFile.Close()
 
 	zipWriter := zip.NewWriter(zipFile)
-	defer zipWriter.Close()
+	// Defer o fechamento do Writer ANTES do rename
+	// defer zipWriter.Close() // Movido para depois da cópia
 
 	// --- Abrir o Arquivo .bak (Acessando o path do servidor) ---
 	l.Info("Abrindo arquivo de backup do servidor", slog.String("path", bakFilePathOnServer))
@@ -155,8 +159,39 @@ func main() {
 	}
 	l.Info("Dados copiados para o arquivo zip", slog.Int64("bytes_copied", bytesCopied))
 
+	// --- Fechar o Zip Writer (IMPORTANTE: Fecha antes de renomear) ---
+	l.Debug("Fechando zip writer...")
+	err = zipWriter.Close() // Fecha explicitamente para garantir que tudo foi escrito
+	if err != nil {
+		l.Error("Erro ao fechar o zip writer", slog.String("path", tempZipPathLocal), slog.Any("error", err))
+		// Tenta remover o arquivo temporário incompleto
+		_ = os.Remove(tempZipPathLocal)
+		if whatsappClient != nil {
+			whatsappClient.Send("Admin", cfg.Database, time.Now().Format("02/01/2006 15:04:05"), fmt.Sprintf("Erro ao finalizar arquivo zip: %v", err))
+		}
+		os.Exit(1)
+	}
+	l.Debug("Zip writer fechado.")
+
+	// --- Fechar o arquivo .tmp (opcional aqui, mas boa prática) ---
+	// O defer zipFile.Close() já faz isso, mas fechar explicitamente antes do rename pode ser mais claro
+	zipFile.Close()
+
+	// --- Renomear o Arquivo Temporário para Final ---
+	l.Info("Renomeando arquivo temporário para final", slog.String("from", tempZipPathLocal), slog.String("to", finalZipPathLocal))
+	err = os.Rename(tempZipPathLocal, finalZipPathLocal)
+	if err != nil {
+		l.Error("Erro ao renomear arquivo .tmp para .zip", slog.String("from", tempZipPathLocal), slog.String("to", finalZipPathLocal), slog.Any("error", err))
+		// Tenta remover o arquivo temporário se a renomeação falhar
+		_ = os.Remove(tempZipPathLocal)
+		if whatsappClient != nil {
+			whatsappClient.Send("Admin", cfg.Database, time.Now().Format("02/01/2006 15:04:05"), fmt.Sprintf("Erro ao renomear arquivo zip final: %v", err))
+		}
+		os.Exit(1)
+	}
+
 	// --- Finalização ---
 	l.Info("Backup concluído e zipado com sucesso",
 		slog.String("database", cfg.Database),
-		slog.String("zip_file", zipFilePathLocal))
+		slog.String("zip_file", finalZipPathLocal)) // Loga o nome final
 }
