@@ -105,10 +105,6 @@ WHATSAPP_TOKEN=seu_token
 Para construir o projeto, execute os seguintes comandos:
 
 ```bash
-# Construir todos os binários
-make build
-
-# Ou construir individualmente
 go build -o bin/dbbackup cmd/dbbackup/main.go
 go build -o bin/uploader cmd/uploader/main.go
 ```
@@ -161,25 +157,21 @@ go run cmd/uploader/main.go [parâmetros]
 
 Opções:
   -server string
-        Servidor do banco de dados (padrão: localhost)
-  -port int
-        Porta do banco de dados (padrão: 1433)
-  -user string
-        Usuário do banco de dados
-  -password string
-        Senha do banco de dados
+        Endereço do servidor SQL Server (ex: host\instância ou host,porta) [OBRIGATÓRIO]
   -database string
-        Nome do banco de dados
-  -backup-path string
-        Caminho para salvar o backup (padrão: ./backups)
-  -schedule string
-        Agendamento do backup no formato cron (ex: "0 0 * * *" para diário)
-  -retention int
-        Número de dias para manter os backups (padrão: 30)
-  -compress
-        Comprimir o backup (padrão: true)
-  -verbose
-        Modo verboso para logs detalhados
+        Nome do banco de dados para backup [OBRIGATÓRIO]
+  -user string
+        Usuário do SQL Server (necessário se não usar Windows Auth) [OBRIGATÓRIO]
+  -password string
+        Senha do SQL Server (necessário se não usar Windows Auth) [OBRIGATÓRIO]
+  -backup-dir string
+        Diretório NO SERVIDOR SQL SERVER onde o .bak será salvo (ex: C:\Backups) [OBRIGATÓRIO]
+  -zip-dir string
+        Diretório local onde o arquivo .zip final será salvo (padrão: ".")
+  -log-dir string
+        Diretório para armazenar arquivos de log (padrão: "./logs")
+  -log-level string
+        Nível de log (debug, info, warn, error) (padrão: "info")
 ```
 
 ### Upload para Google Drive (uploader)
@@ -188,34 +180,26 @@ Opções:
 ./bin/uploader [opções]
 
 Opções:
-  -source string
-        Caminho do arquivo ou diretório para upload
-  -destination string
-        ID da pasta de destino no Google Drive
-  -credentials string
-        Caminho para o arquivo de credenciais do Google (padrão: credentials.json)
-  -recursive
-        Upload recursivo de diretórios
-  -delete-source
-        Deletar arquivo fonte após upload bem-sucedido
-  -verbose
-        Modo verboso para logs detalhados
+  -watch-dir string
+        Diretório a ser monitorado para novos arquivos [OBRIGATÓRIO]
+  -log-dir string
+        Diretório para armazenar arquivos de log [OBRIGATÓRIO]
+  -credentials-file string
+        Caminho para o arquivo credentials.json do Google OAuth2 (padrão: "credentials.json")
+  -token-file string
+        Caminho para salvar/carregar o token OAuth2 do usuário (padrão: "token.json")
+  -log-level string
+        Nível de log (debug, info, warn, error) (padrão: "info")
 ```
 
 ### Exemplos de Uso
 
 ```bash
-# Backup diário do banco de dados
-./bin/dbbackup -server "meu-servidor" -user "admin" -password "senha123" -database "meu_banco" -schedule "0 0 * * *"
+# Backup do banco de dados
+./bin/dbbackup -server "meu-servidor" -database "meu_banco" -user "admin" -password "senha123" -backup-dir "C:\Backups" -zip-dir "./backups" -log-dir "./logs" -log-level "info"
 
-# Backup único com compressão
-./bin/dbbackup -server "meu-servidor" -user "admin" -password "senha123" -database "meu_banco" -compress
-
-# Upload de arquivo para o Google Drive
-./bin/uploader -source "backups/meu_banco.bak" -destination "folder_id" -credentials "path/to/credentials.json"
-
-# Upload recursivo de diretório
-./bin/uploader -source "backups/" -destination "folder_id" -recursive
+# Monitoramento e upload para Google Drive
+./bin/uploader -watch-dir "./backups" -log-dir "./logs" -credentials-file "credentials.json" -token-file "token.json" -log-level "info"
 ```
 
 ## 🔄 Processo de Desenvolvimento
