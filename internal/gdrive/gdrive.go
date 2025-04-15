@@ -120,31 +120,31 @@ func (du *DriveUploader) createBackupFolder(ctx context.Context) (string, error)
 	return createdFolder.Id, nil
 }
 
-// deleteOldBackupFolder deletes the backup folder from the previous day
+// deleteOldBackupFolder deletes the backup folder from two days ago
 func (du *DriveUploader) deleteOldBackupFolder(ctx context.Context) error {
-	yesterday := time.Now().AddDate(0, 0, -1).Format("02-01-2006")
+	twoDaysAgo := time.Now().AddDate(0, 0, -2).Format("02-01-2006")
 
-	// Search for the folder with yesterday's date
-	query := fmt.Sprintf("name = '%s' and mimeType = 'application/vnd.google-apps.folder'", yesterday)
+	// Search for the folder from two days ago
+	query := fmt.Sprintf("name = '%s' and mimeType = 'application/vnd.google-apps.folder'", twoDaysAgo)
 	files, err := du.service.Files.List().Q(query).Context(ctx).Do()
 	if err != nil {
-		du.logger.Error("Erro ao buscar pasta antiga", slog.String("folder", yesterday), slog.Any("error", err))
-		return fmt.Errorf("busca de pasta %s falhou: %w", yesterday, err)
+		du.logger.Error("Erro ao buscar pasta antiga", slog.String("folder", twoDaysAgo), slog.Any("error", err))
+		return fmt.Errorf("busca de pasta %s falhou: %w", twoDaysAgo, err)
 	}
 
 	if len(files.Files) == 0 {
-		du.logger.Debug("Nenhuma pasta antiga encontrada para deletar", slog.String("folder", yesterday))
+		du.logger.Debug("Nenhuma pasta antiga encontrada para deletar", slog.String("folder", twoDaysAgo))
 		return nil
 	}
 
 	// Delete the folder
 	err = du.service.Files.Delete(files.Files[0].Id).Context(ctx).Do()
 	if err != nil {
-		du.logger.Error("Erro ao deletar pasta antiga", slog.String("folder", yesterday), slog.Any("error", err))
-		return fmt.Errorf("deleção de pasta %s falhou: %w", yesterday, err)
+		du.logger.Error("Erro ao deletar pasta antiga", slog.String("folder", twoDaysAgo), slog.Any("error", err))
+		return fmt.Errorf("deleção de pasta %s falhou: %w", twoDaysAgo, err)
 	}
 
-	du.logger.Info("Pasta antiga deletada com sucesso", slog.String("folder", yesterday))
+	du.logger.Info("Pasta antiga deletada com sucesso", slog.String("folder", twoDaysAgo))
 	return nil
 }
 
